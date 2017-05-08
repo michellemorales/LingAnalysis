@@ -2,8 +2,8 @@
 # Script performs linguistic analysis (support included for English, Spanish, German)
 
 from __future__ import division
-from collections import defaultdict
-import sys, re, pandas, numpy, os, subprocess, json, os.path, string
+from nltk.sentiment.vader import SentimentIntensityAnalyzer as SIA
+import pandas, numpy, os, subprocess, os.path, string
 
 
 def bag_of_words(dir):
@@ -87,6 +87,15 @@ def tag_count(df):
     return tag_count
 
 
+def vader(sentence):
+    # VADER (Valence Aware Dictionary and sEntiment Reasoner) - https://github.com/cjhutto/vaderSentiment
+    # Hutto, C.J. & Gilbert, E.E. (2014). VADER: A Parsimonious Rule-based Model for Sentiment Analysis of Social Media
+    # Text. Eighth International Conference on Weblogs and Social Media (ICWSM-14). Ann Arbor, MI, June 2014.
+    sid = SIA()
+    ss = sid.polarity_scores(sentence)
+    return [ss['neg'], ss['neu'], ss['pos'], ss['compound']]
+
+
 def get_feats(file_name, bag, lang, parser_dir):
     with open(os.path.join(dir, file_name), 'r') as data_file:
         transcription = data_file.readlines()
@@ -96,7 +105,8 @@ def get_feats(file_name, bag, lang, parser_dir):
     print bag_header
     # ToDo : figure out what is wrong with the feature header, why isnt bag of words working?
     syntax_header = 'word_count,avg_wordlen,levels,distance,univ_tag,%s' % (','.join(load_tags()))
-    header = bag_header + ',' + syntax_header + '\n'
+    sentiment_header = 'neg,neu,pos,compound'
+    header = bag_header + ',' + syntax_header + ',' + sentiment_header '\n'
     print header
     openF.write(header)
     feature_list = []
@@ -104,6 +114,8 @@ def get_feats(file_name, bag, lang, parser_dir):
         print sentence
         words = sentence.strip().split()
         word_count = len(words)
+        sentiment_feats = vader(sentence)
+        print sentiment_feats
         feats = []
         if word_count > 0:
             for w in bag:
@@ -132,7 +144,7 @@ def get_feats(file_name, bag, lang, parser_dir):
                 syntax_feats = 22 * [0]
         else:
             feats = len(bag) * [0]
-        feats = feats + syntax_feats
+        feats = feats + syntax_feats + sentiment_feats
         features = ','.join([str(f) for f in feats]).encode('ascii', 'ignore')
         feature_list.append(features)
     for s in feature_list:
