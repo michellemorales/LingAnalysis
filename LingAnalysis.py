@@ -1,5 +1,5 @@
 # Michelle Morales
-# Script performs linguistic analysis for languages other than English
+# Script performs linguistic analysis (support included for English, Spanish, German)
 
 from __future__ import division
 from collections import defaultdict
