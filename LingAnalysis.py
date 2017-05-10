@@ -6,25 +6,19 @@ from nltk.sentiment.vader import SentimentIntensityAnalyzer as SIA
 import pandas, numpy, os, subprocess, os.path, string
 
 
-def bag_of_words(dir):
-    files = [f for f in os.listdir(dir) if f.endswith('_transcript.txt')]
+def bag_of_words(document):
     all_words = []
-    for file_name in files:
-        with open(os.path.join(dir, file_name), 'r') as data_file:
-            transcription = data_file.readlines()
-            # Remove punctuation and lower all characters
-            for sentence in transcription:
-                sentence = sentence.translate(None, string.punctuation)
-                words = sentence.lower().strip().split()
-                for w in words:
-                    all_words.append(w)
-
+    words = document.lower().strip().split()
+    for w in words:
+         all_words.append(w)
+    print('Done processing words!')
     bag = []
     for w in all_words:
         count = all_words.count(w)
-        if count > 1 and w not in bag:
+        if count > 5 and w not in bag:
             bag.append(w)
     bag = sorted(bag)
+    print('Done creating bag!')
     return bag
 
 
@@ -73,7 +67,6 @@ def dependency_distance(conll_df):
 def load_tags():
     # Load universal POS tag set - http://universaldependencies.org/u/pos/all.html
     tags = "ADJ ADP ADV AUX CCONJ DET INTJ NOUN NUM PART PRON PROPN PUNCT SCONJ SYM VERB X".strip().split()
-    print tags
     return tags
 
 
@@ -95,58 +88,126 @@ def vader(sentence):
     ss = sid.polarity_scores(sentence)
     return [ss['neg'], ss['neu'], ss['pos'], ss['compound']]
 
+# def anger():
+#
+# def hurt():
+#
+# def trauma():
 
-def get_feats(file_name, bag, lang, parser_dir):
-    with open(os.path.join(dir, file_name), 'r') as data_file:
-        transcription = data_file.readlines()
 
-    openF = open(file_name.replace('_transcript.txt', '_ling.csv'), 'w')
-    bag_header = ','.join(bag).encode('ascii', 'ignore')
-    print bag_header
-    # ToDo : figure out what is wrong with the feature header, why isnt bag of words working?
+def tree_feats(conll):
+    conll_lines = conll.strip().split('\n')
+    conll_table = [line.split('\t') for line in conll_lines]
+    df = pandas.DataFrame(conll_table,
+                          columns=['ID', 'FORM', 'LEMMA', 'UPOS', 'XPOS', 'FEATS', 'HEAD', 'DEPREL', 'DEPS',
+                                   'MISC'])
+    # POS tag count
+    pos_feats = tag_count(df)
+    # Unique number of pos tags
+    univ_tag = len(set(df['UPOS'].values))
+    # Dependency distance
+    distance = dependency_distance(df)
+    heads = df['HEAD'].values
+    # Tree depth
+    levels = len(set(heads))
+    return [levels, distance, univ_tag] + pos_feats
+
+
+def get_syntax(document, lang, parser_dir, output):
+    openF = open(os.path.join(output), 'w')
     syntax_header = 'word_count,avg_wordlen,levels,distance,univ_tag,%s' % (','.join(load_tags()))
     sentiment_header = 'neg,neu,pos,compound'
-    header = bag_header + ',' + syntax_header + ',' + sentiment_header '\n'
-    print header
+    header = '%s,%s\n' % (syntax_header, sentiment_header)
     openF.write(header)
     feature_list = []
-    for sentence in transcription:
-        print sentence
+    sentiment_feats = vader(document)
+    words = document.lower().strip().split()
+    word_count = len(words)
+    avg_wordlen = sum([len(w) for w in words]) / len(words)
+    if word_count > 3:
+        if lang == 'german':
+            try:
+                conll = german_parse(sentence, parser_dir)
+                syntax_feats = tree_feats(conll)
+            except:
+                syntax_feats = 20 * [0]
+        elif lang == 'spanish':
+            try:
+                conll = spanish_parse(sentence, parser_dir)
+                syntax_feats = tree_feats(conll)
+            except:
+                syntax_feats = 20 * [0]
+        elif lang == 'english':
+            try:
+                conll = english_parse(sentence, parser_dir)
+                syntax_feats = tree_feats(conll)
+            except:
+                syntax_feats = 20 * [0]
+    else:
+        syntax_feats = 20 * [0]
+    feats = [word_count, avg_wordlen] + syntax_feats + sentiment_feats
+    features = ','.join([str(f) for f in feats])
+    feature_list.append(features)
+
+    for s in feature_list:
+        openF.write(s + '\n')
+    print ('Done processing document. Linguistic features extracted!')
+
+
+def get_feats(document, bag, lang, parser_dir, output):
+    openF = open(os.path.join(output), 'w')
+    syntax_header = 'word_count,avg_wordlen,levels,distance,univ_tag,%s' % (','.join(load_tags()))
+    sentiment_header = 'neg,neu,pos,compound'
+    bag_header = ','.join(bag).encode('ascii', 'ignore')
+    header = '%s,%s,%s\n' % (bag_header, syntax_header, sentiment_header)
+    openF.write(header)
+    feature_list = []
+    for sentence in document:
         words = sentence.strip().split()
         word_count = len(words)
         sentiment_feats = vader(sentence)
-        print sentiment_feats
         feats = []
         if word_count > 0:
             for w in bag:
                 count = words.count(w)
                 feats.append(float(count) / word_count)
-            if lang == 'german':
-                conll = german_parse(sentence, parser_dir)
-            elif lang == 'spanish':
-                conll = spanish_parse(sentence, parser_dir)
-            elif lang == 'english':
-                conll = english_parse(sentence, parser_dir)
-            if conll:
+            if word_count > 3:
+                if lang == 'german':
+                    conll = german_parse(sentence, parser_dir)
+                elif lang == 'spanish':
+                    conll = spanish_parse(sentence, parser_dir)
+                elif lang == 'english':
+                    conll = english_parse(sentence, parser_dir)
+            else:
+                syntax_feats = 22 * [0]
+            if 'conll' in locals():
                 conll_lines = conll.strip().split('\n')
                 conll_table = [line.split('\t') for line in conll_lines]
                 df = pandas.DataFrame(conll_table,
                                       columns=['ID', 'FORM', 'LEMMA', 'UPOS', 'XPOS', 'FEATS', 'HEAD', 'DEPREL', 'DEPS',
                                                'MISC'])
-                pos_feats = tag_count(df)  # pos tag count
-                univ_tag = len(set(df['UPOS'].values))  # unique number of pos tags
-                distance = dependency_distance(df)  # dependency distance
+                # POS tag count
+                pos_feats = tag_count(df)
+                # Unique number of pos tags
+                univ_tag = len(set(df['UPOS'].values))
+                # Dependency distance
+                distance = dependency_distance(df)
                 heads = df['HEAD'].values
-                levels = len(set(heads))  # tree depth
-                avg_wordlen = sum([len(w) for w in words]) / len(words)  # average word length
+                # Tree depth
+                levels = len(set(heads))
+                # Average word length
+                avg_wordlen = sum([len(w) for w in words]) / len(words)
                 syntax_feats = [word_count, avg_wordlen, levels, distance, univ_tag] + pos_feats
             else:
                 syntax_feats = 22 * [0]
         else:
             feats = len(bag) * [0]
+
         feats = feats + syntax_feats + sentiment_feats
         features = ','.join([str(f) for f in feats]).encode('ascii', 'ignore')
         feature_list.append(features)
+
     for s in feature_list:
         openF.write(s + '\n')
-    print 'Done processing non-english transcript. Linguistic features saved to file!'
+    print ('Done processing document. Linguistic features extracted!')
+
